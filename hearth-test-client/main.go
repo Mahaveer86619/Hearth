@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -18,6 +19,16 @@ type Config struct {
 	TargetHTTPPort string
 	TargetTCPPort  string
 	ServerPort     string
+}
+
+type ThroughputManager struct {
+	mu       sync.Mutex
+	running  bool
+	stopChan chan struct{}
+}
+
+var tm = &ThroughputManager{
+	stopChan: make(chan struct{}),
 }
 
 func loadConfig() Config {
@@ -51,7 +62,15 @@ func main() {
 	})
 
 	http.HandleFunc("/api/test-tcp", func(w http.ResponseWriter, r *http.Request) {
-		handleTCPTest(w, cfg)
+		handleTCPTest(w, r, cfg)
+	})
+
+	http.HandleFunc("/api/start-throughput", func(w http.ResponseWriter, r *http.Request) {
+		handleStartThroughput(w, r, cfg)
+	})
+
+	http.HandleFunc("/api/stop-throughput", func(w http.ResponseWriter, r *http.Request) {
+		handleStopThroughput(w, r)
 	})
 
 	log.Printf("Test Client starting on port %s...", cfg.ServerPort)
@@ -101,7 +120,19 @@ func handleHTTPTest(w http.ResponseWriter, cfg Config) {
 	json.NewEncoder(w).Encode(result)
 }
 
-func handleTCPTest(w http.ResponseWriter, cfg Config) {
+func handleTCPTest(w http.ResponseWriter, r *http.Request, cfg Config) {
+	var requestBody struct {
+		Message string `json:"message"`
+	}
+
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&requestBody); err != nil {
+		requestBody.Message = "Default test message"
+	}
+
+	if requestBody.Message == "" {
+		requestBody.Message = "Default test message"
+	}
+
 	address := fmt.Sprintf("%s:%s", cfg.TargetHost, cfg.TargetTCPPort)
 	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 
@@ -114,8 +145,11 @@ func handleTCPTest(w http.ResponseWriter, cfg Config) {
 	} else {
 		defer conn.Close()
 
-		// Send a test message
-		message := "Test message from dummy client"
+		message := requestBody.Message
+		if message[len(message)-1] != '\n' {
+			message += "\n"
+		}
+
 		_, writeErr := fmt.Fprintf(conn, message)
 
 		if writeErr != nil {
@@ -131,4 +165,89 @@ func handleTCPTest(w http.ResponseWriter, cfg Config) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func handleStartThroughput(w http.ResponseWriter, r *http.Request, cfg Config) {
+	var body struct {
+		Rate    int    `json:"rate"`
+		Message string `json:"message"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+
+	if body.Rate <= 0 {
+		body.Rate = 1
+	}
+
+	tm.mu.Lock()
+	if tm.running {
+		tm.mu.Unlock()
+		json.NewEncoder(w).Encode(TestResult{Success: false, Message: "Throughput test already running"})
+		return
+	}
+	tm.running = true
+	tm.stopChan = make(chan struct{})
+	tm.mu.Unlock()
+
+	go runThroughputTest(body.Rate, body.Message, cfg)
+
+	json.NewEncoder(w).Encode(TestResult{Success: true, Message: fmt.Sprintf("Started throughput test at %d logs/sec", body.Rate)})
+}
+
+func handleStopThroughput(w http.ResponseWriter, r *http.Request) {
+	tm.mu.Lock()
+	if !tm.running {
+		tm.mu.Unlock()
+		json.NewEncoder(w).Encode(TestResult{Success: false, Message: "Throughput test not running"})
+		return
+	}
+	tm.running = false
+	close(tm.stopChan)
+	tm.mu.Unlock()
+
+	json.NewEncoder(w).Encode(TestResult{Success: true, Message: "Stopped throughput test"})
+}
+
+func runThroughputTest(rate int, message string, cfg Config) {
+	address := fmt.Sprintf("%s:%s", cfg.TargetHost, cfg.TargetTCPPort)
+	
+	if message == "" {
+		message = "Throughput test log message"
+	}
+	if message[len(message)-1] != '\n' {
+		message += "\n"
+	}
+
+	ticker := time.NewTicker(time.Second / time.Duration(rate))
+	defer ticker.Stop()
+
+	// Keep a persistent connection for the test
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		log.Printf("Throughput test failed to connect: %v", err)
+		tm.mu.Lock()
+		tm.running = false
+		tm.mu.Unlock()
+		return
+	}
+	defer conn.Close()
+
+	for {
+		select {
+		case <-tm.stopChan:
+			return
+		case <-ticker.C:
+			_, err := fmt.Fprint(conn, message)
+			if err != nil {
+				log.Printf("Throughput test write error: %v", err)
+				tm.mu.Lock()
+				tm.running = false
+				tm.mu.Unlock()
+				return
+			}
+		}
+	}
 }

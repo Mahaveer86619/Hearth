@@ -12,6 +12,7 @@
         .success { color: green; }
         .error { color: red; }
         pre { background: #f4f4f4; padding: 0.5rem; overflow-x: auto; }
+        #ws-log { background: #222; color: #0f0; padding: 0.5rem; margin-top: 1rem; border-radius: 4px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -27,17 +28,77 @@
     <div class="card">
         <h2>TCP Connection Test</h2>
         <p>Attempts to establish a TCP connection and send a test message.</p>
-        <button onclick="runTest('/api/test-tcp', 'tcp-result')">Test TCP</button>
+        <input type="text" id="tcp-message" placeholder="Enter message to send..." style="width: 100%; margin-bottom: 0.5rem; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px;">
+        <br>
+        <button onclick="runTCPTest()">Test TCP</button>
         <div id="tcp-result"></div>
     </div>
 
+    <div class="card">
+        <h2>Throughput Simulation</h2>
+        <p>Send logs continuously at a specific rate to test the Hot Path.</p>
+        <div style="display: flex; gap: 1rem; align-items: end;">
+            <div style="flex: 1;">
+                <label style="font-size: 0.8rem;">Logs per second</label><br>
+                <input type="number" id="tp-rate" value="10" style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <div style="flex: 3;">
+                <label style="font-size: 0.8rem;">Log Message</label><br>
+                <input type="text" id="tp-message" placeholder="Log content..." style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+        </div>
+        <br>
+        <button id="tp-start-btn" onclick="startThroughput()">Start Simulation</button>
+        <button id="tp-stop-btn" onclick="stopThroughput()" style="background: #dc3545;">Stop</button>
+        <div id="tp-result"></div>
+    </div>
+
+    <div class="card">
+        <h2>WebSocket Stream</h2>
+        <p>Listens for real-time logs and heartbeats from the server.</p>
+        <button id="ws-btn" onclick="toggleWS()">Connect WebSocket</button>
+        <div id="ws-status" style="margin-top: 0.5rem; font-size: 0.9rem;">Status: Disconnected</div>
+        <div id="ws-log">
+            [Waiting for connection...]
+        </div>
+    </div>
+
     <script>
-        async function runTest(endpoint, resultId) {
+        let ws = null;
+        const wsBtn = document.getElementById('ws-btn');
+        const wsStatus = document.getElementById('ws-status');
+        const wsLog = document.getElementById('ws-log');
+
+        async function startThroughput() {
+            const rate = parseInt(document.getElementById('tp-rate').value);
+            const message = document.getElementById('tp-message').value;
+            await runTest('/api/start-throughput', 'tp-result', { rate, message });
+        }
+
+        async function stopThroughput() {
+            await runTest('/api/stop-throughput', 'tp-result', {});
+        }
+
+        async function runTCPTest() {
+            const message = document.getElementById('tcp-message').value || "Default test message";
+            await runTest('/api/test-tcp', 'tcp-result', { message });
+        }
+
+        async function runTest(endpoint, resultId, payload = null) {
             const resultDiv = document.getElementById(resultId);
             resultDiv.innerHTML = 'Testing...';
             
             try {
-                const response = await fetch(endpoint);
+                let options = { method: 'GET' };
+                if (payload) {
+                    options = {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    };
+                }
+
+                const response = await fetch(endpoint, options);
                 const data = await response.json();
                 
                 let html = `<p class="${data.success ? 'success' : 'error'}"><strong>${data.message}</strong></p>`;
@@ -47,6 +108,57 @@
                 resultDiv.innerHTML = html;
             } catch (err) {
                 resultDiv.innerHTML = `<p class="error">Error executing test: ${err.message}</p>`;
+            }
+        }
+
+        function toggleWS() {
+            if (ws) {
+                ws.close();
+                return;
+            }
+
+            // Assume core is at port 4040 on the same host
+            const corePort = "4040";
+            const coreAddr = window.location.hostname + ":" + corePort;
+            
+            try {
+                ws = new WebSocket(`ws://${coreAddr}/ws`);
+                
+                wsBtn.innerText = 'Disconnect WebSocket';
+                wsStatus.innerText = 'Status: Connecting...';
+                wsStatus.className = '';
+
+                ws.onopen = () => {
+                    wsStatus.innerText = 'Status: Connected';
+                    wsStatus.className = 'success';
+                    wsLog.innerHTML = '<div>[Connected to ' + coreAddr + ']</div>';
+                };
+
+                ws.onmessage = (event) => {
+                    const div = document.createElement('div');
+                    div.textContent = `> ${event.data}`;
+                    wsLog.appendChild(div);
+                    wsLog.scrollTop = wsLog.scrollHeight;
+                };
+
+                ws.onclose = () => {
+                    ws = null;
+                    wsBtn.innerText = 'Connect WebSocket';
+                    wsStatus.innerText = 'Status: Disconnected';
+                    wsStatus.className = '';
+                    const div = document.createElement('div');
+                    div.textContent = '[Connection Closed]';
+                    div.style.color = '#ff4444';
+                    wsLog.appendChild(div);
+                };
+
+                ws.onerror = (err) => {
+                    console.error('WebSocket Error:', err);
+                    wsStatus.innerText = 'Status: Error (Check console)';
+                    wsStatus.className = 'error';
+                };
+            } catch (e) {
+                console.error('WebSocket Init Error:', e);
             }
         }
     </script>
