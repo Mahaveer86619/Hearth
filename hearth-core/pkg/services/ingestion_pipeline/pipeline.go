@@ -46,10 +46,10 @@ func (s *IngestionPipelineService) processLog(raw []byte) {
 	// 1. NORMALIZE (Phase 2 placeholder)
 	// For now, we just wrap it simply
 	entry := models.LogEntry{
-		Timestamp:  time.Now(),
-		Service:    "unknown",
-		RawMessage: string(raw),
-		Type:       "raw",
+		Timestamp: time.Now(),
+		Service:   "unknown",
+		Raw:       string(raw),
+		Type:      "raw",
 	}
 
 	// 2. SERIALIZE
