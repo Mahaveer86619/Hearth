@@ -88,7 +88,7 @@ func (s *TCPServer) Name() string {
 func (s *TCPServer) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
-	// log.Printf("New TCP connection from: %s", conn.RemoteAddr())
+	log.Printf("New TCP connection from: %s", conn.RemoteAddr())
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {

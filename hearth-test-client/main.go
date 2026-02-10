@@ -1,15 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds the client configuration
@@ -21,10 +21,14 @@ type Config struct {
 }
 
 func loadConfig() Config {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
+
 	return Config{
-		TargetHost:     getEnv("TARGET_HOST", "hearth-core"),
-		TargetHTTPPort: getEnv("TARGET_HTTP_PORT", "4050"),
-		TargetTCPPort:  getEnv("TARGET_TCP_PORT", "4040"),
+		TargetHost:     getEnv("TARGET_HOST", "localhost"),
+		TargetHTTPPort: getEnv("TARGET_HTTP_PORT", "4040"),
+		TargetTCPPort:  getEnv("TARGET_TCP_PORT", "4050"),
 		ServerPort:     getEnv("PORT", "3000"),
 	}
 }
@@ -60,25 +64,37 @@ func main() {
 type TestResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
-	Details string `json:"details,omitempty"`
+	Details any    `json:"details,omitempty"`
+}
+
+type HearthResponse struct {
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 func handleHTTPTest(w http.ResponseWriter, cfg Config) {
 	url := fmt.Sprintf("http://%s:%s/health", cfg.TargetHost, cfg.TargetHTTPPort)
 	resp, err := http.Get(url)
-	
+
 	result := TestResult{}
-	
+
 	if err != nil {
 		result.Success = false
 		result.Message = "Failed to connect to HTTP endpoint"
 		result.Details = err.Error()
 	} else {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		result.Success = resp.StatusCode == 200
-		result.Message = fmt.Sprintf("HTTP Status: %d", resp.StatusCode)
-		result.Details = string(body)
+
+		var hearthResp HearthResponse
+		if err := json.NewDecoder(resp.Body).Decode(&hearthResp); err != nil {
+			result.Success = false
+			result.Message = "Connected but failed to parse JSON response"
+			result.Details = fmt.Sprintf("Status: %d", resp.StatusCode)
+		} else {
+			result.Success = resp.StatusCode == 200
+			result.Message = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, hearthResp.Message)
+			result.Details = hearthResp.Data
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -97,12 +113,11 @@ func handleTCPTest(w http.ResponseWriter, cfg Config) {
 		result.Details = err.Error()
 	} else {
 		defer conn.Close()
-		
+
 		// Send a test message
-		message := "Test message from dummy client
-"
+		message := "Test message from dummy client"
 		_, writeErr := fmt.Fprintf(conn, message)
-		
+
 		if writeErr != nil {
 			result.Success = false
 			result.Message = "Connected but failed to send data"

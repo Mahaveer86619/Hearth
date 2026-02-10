@@ -30,8 +30,8 @@ func LoadConfig() {
 	}
 
 	AppConfig = Config{
-		HTTPPort: getEnvInt("HTTP_PORT", 4050),
-		TCPPort:  getEnvInt("TCP_PORT", 4040),
+		HTTPPort: getEnvInt("HTTP_PORT", 4040),
+		TCPPort:  getEnvInt("TCP_PORT", 4050),
 
 		MinioEndpoint:  getEnv("MINIO_ENDPOINT", "minio:9000"),
 		MinioAccessKey: getEnv("MINIO_ACCESS_KEY", "minioadmin"),

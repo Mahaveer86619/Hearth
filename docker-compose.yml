@@ -56,6 +56,22 @@ services:
     networks:
       - hearth-network
 
+  # hearth-test-client:
+  #   container_name: hearth_test_client
+  #   build:
+  #     context: ./hearth-test-client/
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     TARGET_HOST: hearth_core
+  #     TARGET_HTTP_PORT: 4040
+  #     TARGET_TCP_PORT: 4050
+  #   depends_on:
+  #     - hearth-core
+  #   networks:
+  #     - hearth-network
+
 volumes:
   minio_data:
   redis_data:
