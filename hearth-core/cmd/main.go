@@ -10,12 +10,26 @@ import (
 	"time"
 
 	"github.com/Mahaveer86619/Hearth/pkg/config"
+	"github.com/Mahaveer86619/Hearth/pkg/db"
+	"github.com/Mahaveer86619/Hearth/pkg/services"
+	"github.com/Mahaveer86619/Hearth/pkg/services/ingestion_pipeline"
 	"github.com/Mahaveer86619/Hearth/pkg/web"
 )
 
 func main() {
 	config.LoadConfig()
-	
+
+	if err := db.InitRedis(config.AppConfig.RedisURL); err != nil {
+		log.Fatalf("Critical: %v", err)
+	}
+
+	hub := services.NewHub()
+	go hub.Run()
+
+	pipe := ingestion_pipeline.NewIngestionPipelineService()
+	pipe.Start()
+	defer pipe.Stop()
+
 	servers := web.NewServers()
 
 	quit := make(chan os.Signal, 1)

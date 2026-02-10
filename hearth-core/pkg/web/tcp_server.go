@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Mahaveer86619/Hearth/pkg/logger"
+	"github.com/Mahaveer86619/Hearth/pkg/services/ingestion_pipeline"
 )
 
 type TCPServer struct {
@@ -16,12 +18,14 @@ type TCPServer struct {
 	listener net.Listener
 	quit     chan struct{}
 	wg       sync.WaitGroup
+	pipeline *ingestion_pipeline.IngestionPipelineService
 }
 
 func NewTCPServer(addr string) *TCPServer {
 	return &TCPServer{
-		addr: addr,
-		quit: make(chan struct{}),
+		addr:     addr,
+		quit:     make(chan struct{}),
+		pipeline: ingestion_pipeline.GetInstance(),
 	}
 }
 
@@ -33,7 +37,7 @@ func (s *TCPServer) Start() error {
 	s.listener = listener
 	// defer s.listener.Close() // Close is handled in Stop
 
-	log.Printf("TCP Ingestion Server listening on %s", s.addr)
+	logger.Info("TCP", "Ingestion Server listening on %s", s.addr)
 
 	for {
 		conn, err := listener.Accept()
@@ -46,7 +50,7 @@ func (s *TCPServer) Start() error {
 				if strings.Contains(err.Error(), "use of closed network connection") {
 					return nil
 				}
-				log.Printf("TCP Accept error: %v", err)
+				logger.Error("TCP", "Accept error: %v", err)
 				continue
 			}
 		}
@@ -60,7 +64,7 @@ func (s *TCPServer) Stop(ctx context.Context) error {
 	if s.listener != nil {
 		s.listener.Close()
 	}
-	
+
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -88,13 +92,19 @@ func (s *TCPServer) Name() string {
 func (s *TCPServer) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
-	log.Printf("New TCP connection from: %s", conn.RemoteAddr())
+	// logger.Info("TCP", "New connection from: %s", conn.RemoteAddr())
 
 	scanner := bufio.NewScanner(conn)
+
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
 	for scanner.Scan() {
-		line := scanner.Text()
-		// TODO: Push to WAL and WebSocket Hub
-		_ = line 
+		text := scanner.Bytes()
+		data := make([]byte, len(text))
+		copy(data, text)
+
+		s.pipeline.Ingest(data)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -104,7 +114,7 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 			return
 		default:
 			if !strings.Contains(err.Error(), "use of closed network connection") {
-				log.Printf("TCP connection error from %s: %v", conn.RemoteAddr(), err)
+				logger.Error("TCP", "connection error from %s: %v", conn.RemoteAddr(), err)
 			}
 		}
 	}

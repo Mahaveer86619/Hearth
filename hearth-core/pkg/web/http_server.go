@@ -24,25 +24,24 @@ func NewHTTPServer(addr string) *HTTPServer {
 
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(healthService)
+	wsHandler := handlers.NewWSHandler()
 
 	s := &HTTPServer{
 		router: router,
 		addr:   addr,
 	}
 
-	s.setupRoutes(healthHandler)
+	s.setupRoutes(healthHandler, wsHandler)
 
 	return s
 }
 
-func (s *HTTPServer) setupRoutes(hh *handlers.HealthHandler) {
+func (s *HTTPServer) setupRoutes(hh *handlers.HealthHandler, wh *handlers.WSHandler) {
 	s.router.GET("/health", hh.Check)
 	s.router.GET("/ping", hh.Ping)
 
 	// WebSocket endpoint
-	s.router.GET("/ws", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "websocket endpoint placeholder"})
-	})
+	s.router.GET("/ws", wh.Handle)
 }
 
 // Start starts the Gin HTTP server
