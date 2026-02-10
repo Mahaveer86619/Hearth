@@ -10,137 +10,126 @@ import (
 )
 
 var (
-	// Matches standard Go log: 2026/02/10 04:57:00 INFO Message...
-	// Group 1: Timestamp
-	// Group 2: Level (INFO, WARN, ERROR)
-	// Group 3: The rest of the message (Service + Body)
-	reGoLog = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+(\w+)?\s*(.*)`)
-
-	// Matches SQL Latency: [422.554ms] [rows:1] ...
-	reSqlTrace = regexp.MustCompile(`^\[(\d+\.\d+ms)\] \[rows:(\d+)\] (.*)`)
-
-	// Matches OCR: OCR response for <ID>: { ... }
-	reOcr = regexp.MustCompile(`OCR response for ([A-Z0-9]+): \{(.+)\}`)
+	// Matches standard log formats like: 2026/02/10 19:13:06 INFO [SERVICE] Message
+	// Or: 2026/02/10 19:13:06 INFO Message
+	reStdLog = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+([A-Z]+)\s+(.*)`)
 )
 
+// Normalize attempts to convert a raw byte slice into a structured LogEntry.
 func Normalize(raw []byte) models.LogEntry {
-	rawStr := string(raw)
+	rawStr := strings.TrimSpace(string(raw))
 	entry := models.LogEntry{
 		Timestamp: time.Now(),
-		Service:   "SYSTEM",
+		Service:   "unknown",
 		Severity:  "INFO",
 		Type:      "raw",
 		Raw:       rawStr,
 		Metadata:  make(map[string]interface{}),
 	}
 
-	// --- Strategy 1: JSON Logs (HTTP) ---
-	if strings.HasPrefix(strings.TrimSpace(rawStr), "{") {
-		var jsonMap map[string]interface{}
-		if err := json.Unmarshal(raw, &jsonMap); err == nil {
-			entry.Type = "json"
-			entry.Service = "API"
+	if rawStr == "" {
+		return entry
+	}
 
-			if val, ok := jsonMap["time"].(string); ok {
-				if t, err := time.Parse(time.RFC3339Nano, val); err == nil {
-					entry.Timestamp = t
-				}
-			}
-			if msg, ok := jsonMap["uri"].(string); ok {
-				entry.Message = "HTTP " + msg
-			}
-			if status, ok := jsonMap["status"].(float64); ok {
-				entry.Metadata["status"] = int(status)
-				if status >= 400 {
-					entry.Severity = "WARN"
-				}
-				if status >= 500 {
-					entry.Severity = "ERROR"
-				}
-			}
-			if lat, ok := jsonMap["latency_human"].(string); ok {
-				entry.Metadata["latency"] = lat
-			}
+	// Strategy 1: JSON
+	if strings.HasPrefix(rawStr, "{") && strings.HasSuffix(rawStr, "}") {
+		var data map[string]any
+		if err := json.Unmarshal(raw, &data); err == nil {
+			entry.Type = "json"
+			entry.Metadata = data
+			extractGenericFields(&entry, data)
 			return entry
 		}
 	}
 
-	// --- Strategy 2: Standard Go Logs ---
-	// Format: "2026/02/10 10:00:00 INFO Message..."
-	if matches := reGoLog.FindStringSubmatch(rawStr); len(matches) > 3 {
-		// 1. Parse Timestamp
+	// Strategy 2: Standard Log Format (Regex)
+	if matches := reStdLog.FindStringSubmatch(rawStr); len(matches) > 3 {
+		entry.Type = "std"
+		
+		// Parse Time
 		if t, err := time.Parse("2006/01/02 15:04:05", matches[1]); err == nil {
 			entry.Timestamp = t
 		}
 
-		// 2. Parse Level
-		if matches[2] != "" {
-			entry.Severity = matches[2]
-		}
-
-		// 3. Dynamic Service Extraction
-		// Logic: Take the whole message string (Group 3), split by space, take the first word.
-		fullMsg := strings.TrimSpace(matches[3])
+		// Severity
+		entry.Severity = strings.ToUpper(matches[2])
+		
+		// Message & Service Extraction
+		fullMsg := matches[3]
 		entry.Message = fullMsg
-
-		// Split "OCR response for..." -> ["OCR", "response", "for"...]
-		// Split "FSN: TMRGT..." -> ["FSN:", "TMRGT..."]
-		parts := strings.SplitN(fullMsg, " ", 2)
-		if len(parts) > 0 {
-			// Clean the service name (remove trailing colon if present)
-			serviceName := strings.TrimSuffix(parts[0], ":")
-
-			// Save to Metadata as requested
-			entry.Metadata["service_name"] = serviceName
-
-			// Also update the main Service field for indexing
-			entry.Service = serviceName
+		
+		// Try to see if there's a [SERVICE] or SERVICE: prefix
+		if strings.HasPrefix(fullMsg, "[") {
+			endIdx := strings.Index(fullMsg, "]")
+			if endIdx > 0 {
+				entry.Service = fullMsg[1:endIdx]
+				entry.Message = strings.TrimSpace(fullMsg[endIdx+1:])
+			}
+		} else if parts := strings.SplitN(fullMsg, " ", 2); len(parts) > 1 && strings.HasSuffix(parts[0], ":") {
+			entry.Service = strings.TrimSuffix(parts[0], ":")
+			entry.Message = parts[1]
 		}
 
-		entry.Type = "std"
-
-		// 4. Run Specific Metadata Parsing (Deep extraction)
-		extractSpecificMetadata(&entry)
-
 		return entry
 	}
 
-	// --- Strategy 3: SQL Traces (No Timestamp header) ---
-	// Format: "[400ms] [rows:1] SELECT..."
-	if matches := reSqlTrace.FindStringSubmatch(rawStr); len(matches) > 3 {
-		entry.Type = "sql"
-		entry.Service = "DB"
-		entry.Severity = "WARN"
-		entry.Metadata["latency"] = matches[1]
-		entry.Metadata["rows"] = matches[2]
-		entry.Message = "SQL: " + matches[3]
-		return entry
-	}
-
-	// Fallback for unknown lines
+	// Fallback: Generic Raw
 	entry.Message = rawStr
+	extractFromRaw(&entry, rawStr)
+
 	return entry
 }
 
-func extractSpecificMetadata(entry *models.LogEntry) {
-	// OCR Deep Parsing
-	// Even though we already extracted Service="OCR", we want the Shipment ID too.
-	if entry.Service == "OCR" || strings.Contains(entry.Message, "OCR response") {
-		matches := reOcr.FindStringSubmatch(entry.Message)
-		if len(matches) > 2 {
-			entry.Metadata["shipment_id"] = matches[1]
-			if strings.Contains(matches[2], "Status:success") {
-				entry.Metadata["ocr_status"] = "success"
-			} else {
-				entry.Metadata["ocr_status"] = "failed"
-				entry.Severity = "ERROR"
-			}
+func extractFromRaw(entry *models.LogEntry, raw string) {
+	upperRaw := strings.ToUpper(raw)
+	if strings.Contains(upperRaw, "ERROR") || strings.Contains(upperRaw, "ERRO") {
+		entry.Severity = "ERROR"
+	} else if strings.Contains(upperRaw, "WARN") {
+		entry.Severity = "WARN"
+	} else if strings.Contains(upperRaw, "DEBUG") {
+		entry.Severity = "DEBUG"
+	}
+}
+
+func extractGenericFields(entry *models.LogEntry, data map[string]interface{}) {
+	msgFields := []string{"message", "msg", "content", "text", "body"}
+	for _, f := range msgFields {
+		if val, ok := data[f].(string); ok {
+			entry.Message = val
+			break
 		}
 	}
-
-	// Slow SQL Header (Standard Log format)
-	if strings.Contains(entry.Message, "SLOW SQL") {
-		entry.Severity = "WARN"
-		entry.Metadata["alert"] = "slow_sql"
+	serviceFields := []string{"service", "app", "application", "name", "service_name"}
+	for _, f := range serviceFields {
+		if val, ok := data[f].(string); ok {
+			entry.Service = val
+			break
+		}
 	}
+	levelFields := []string{"level", "severity", "log_level", "type"}
+	for _, f := range levelFields {
+		if val, ok := data[f].(string); ok {
+			entry.Severity = strings.ToUpper(val)
+			break
+		}
+	}
+	timeFields := []string{"timestamp", "time", "@timestamp", "ts", "created_at"}
+	for _, f := range timeFields {
+		if val := data[f]; val != nil {
+			if s, ok := val.(string); ok {
+				formats := []string{time.RFC3339, time.RFC3339Nano, "2006-01-02 15:04:05", "2006/01/02 15:04:05"}
+				for _, fmt := range formats {
+					if t, err := time.Parse(fmt, s); err == nil {
+						entry.Timestamp = t
+						break
+					}
+				}
+			}
+			if n, ok := val.(float64); ok {
+				if n > 1e12 { entry.Timestamp = time.UnixMilli(int64(n)) } else { entry.Timestamp = time.Unix(int64(n), 0) }
+			}
+			break
+		}
+	}
+	if entry.Message == "" { entry.Message = entry.Raw }
 }

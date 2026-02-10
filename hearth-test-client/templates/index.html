@@ -3,91 +3,467 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hearth Test Client</title>
+    <title>Hearth Live</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-        .card { border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
-        button { padding: 0.5rem 1rem; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
-        button:hover { background: #0056b3; }
-        .success { color: green; }
-        .error { color: red; }
-        pre { background: #f4f4f4; padding: 0.5rem; overflow-x: auto; }
-        #ws-log { background: #222; color: #0f0; padding: 0.5rem; margin-top: 1rem; border-radius: 4px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; }
+        :root {
+            --bg-color: #0f1115;
+            --surface-color: #1a1d24;
+            --border-color: #2f333d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-color: #58a6ff;
+            --success-color: #3fb950;
+            --error-color: #f85149;
+            --warn-color: #d29922;
+            --chip-bg: #2d313c;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: var(--bg-color); 
+            color: var(--text-primary); 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden;
+        }
+
+        /* --- Navbar --- */
+        header {
+            height: 60px;
+            background: var(--surface-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .brand {
+            font-weight: 700;
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .brand span { color: var(--accent-color); }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        button {
+            background: var(--chip-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:hover { background: #353a45; }
+        button.primary { background: var(--accent-color); color: white; border: none; }
+        button.primary:hover { opacity: 0.9; }
+        button.danger { background: rgba(248, 81, 73, 0.1); color: var(--error-color); border-color: rgba(248, 81, 73, 0.2); }
+        button.danger:hover { background: rgba(248, 81, 73, 0.2); }
+
+        /* --- Main Log Area --- */
+        main {
+            flex: 1;
+            position: relative;
+            background: #0d0f12;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #ws-status-bar {
+            padding: 0.5rem 1.5rem;
+            font-size: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            background: rgba(26, 29, 36, 0.5);
+            backdrop-filter: blur(5px);
+            color: var(--text-secondary);
+        }
+
+        #ws-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        #scroll-bottom-btn {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            z-index: 100;
+        }
+
+        /* --- Log Entries --- */
+        .log-entry {
+            display: flex;
+            align-items: baseline;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid rgba(47, 51, 61, 0.3);
+            animation: fadeIn 0.15s ease-out;
+        }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .log-time { color: var(--text-secondary); font-size: 0.8rem; min-width: 140px; }
+        
+        .level-chip { 
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            padding: 2px 10px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            margin-right: 1rem;
+            min-width: 70px;
+            text-align: center;
+            display: inline-block;
+            text-transform: uppercase;
+        }
+
+        .level-chip-INFO { background: rgba(63, 185, 80, 0.2); color: #7ee787; border-color: rgba(63, 185, 80, 0.3); }
+        .level-chip-WARN { background: rgba(210, 153, 34, 0.2); color: var(--warn-color); border-color: rgba(210, 153, 34, 0.3); }
+        .level-chip-ERROR { background: rgba(248, 81, 73, 0.2); color: var(--error-color); border-color: rgba(248, 81, 73, 0.3); }
+        .level-chip-DEBUG { background: rgba(88, 166, 255, 0.2); color: var(--accent-color); border-color: rgba(88, 166, 255, 0.3); }
+
+        .log-service { color: var(--text-secondary); font-size: 0.8rem; margin-right: 1rem; font-weight: 600; min-width: 80px; }
+        .log-msg { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; flex: 1; }
+        
+        .log-meta { 
+            display: block; 
+            margin-top: 0.25rem; 
+            margin-left: 140px; /* Align with message */
+            font-size: 0.8rem; 
+            color: var(--text-secondary);
+            opacity: 0.8;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .heartbeat {
+            padding: 0.2rem 0;
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.15);
+            text-align: center;
+            margin: 0.5rem 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        .heartbeat::before, .heartbeat::after { content: ''; height: 1px; background: rgba(255, 255, 255, 0.1); flex: 1; }
+
+        /* --- Modal --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(2px);
+            z-index: 1000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.open { display: flex; }
+
+        .modal {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+
+        .modal-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h2 { font-size: 1.1rem; }
+        
+        .modal-body { padding: 1.5rem; }
+
+        .section { margin-bottom: 2rem; }
+        .section-title { 
+            font-size: 0.85rem; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            color: var(--text-secondary); 
+            margin-bottom: 1rem; 
+            font-weight: 700;
+        }
+
+        .input-group { margin-bottom: 1rem; }
+        .input-group label { display: block; font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--text-secondary); }
+        .input-group input { 
+            width: 100%; 
+            background: var(--bg-color); 
+            border: 1px solid var(--border-color); 
+            color: var(--text-primary); 
+            padding: 0.6rem; 
+            border-radius: 6px; 
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+        .input-group input:focus { outline: none; border-color: var(--accent-color); }
+
+        .row { display: flex; gap: 1rem; }
+        .col { flex: 1; }
+
+        .status-pill {
+            display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #666; margin-right: 6px;
+        }
+        .status-pill.connected { background: var(--success-color); box-shadow: 0 0 8px rgba(63, 185, 80, 0.4); }
+
+        /* --- Mobile Responsiveness --- */
+        @media (max-width: 768px) {
+            header { padding: 0 1rem; }
+            .brand { font-size: 1.1rem; }
+            .brand span { display: none; }
+            
+            #ws-log { padding: 0.5rem 1rem; }
+            
+            .log-entry { flex-direction: column; gap: 2px; padding: 0.8rem 0; }
+            .log-header { flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+            
+            .log-time { min-width: auto; font-size: 0.75rem; display: block; width: 100%; margin-bottom: 2px; }
+            .level-chip { min-width: 60px; margin-right: 0.5rem; }
+            .log-service { min-width: auto; margin-right: 0.5rem; }
+            
+            .log-meta { margin-left: 0; margin-top: 0.5rem; font-size: 0.75rem; padding: 0.4rem; }
+            
+            #scroll-bottom-btn { width: 90%; font-size: 0.8rem; bottom: 10px; }
+            
+            .modal { width: 95%; margin: 10px; }
+        }
     </style>
 </head>
 <body>
-    <h1>Hearth Test Client</h1>
 
-    <div class="card">
-        <h2>HTTP Health Check</h2>
-        <p>Tests the /health endpoint of the Hearth Core service.</p>
-        <button onclick="runTest('/api/test-http', 'http-result')">Test HTTP</button>
-        <div id="http-result"></div>
-    </div>
-
-    <div class="card">
-        <h2>TCP Connection Test</h2>
-        <p>Attempts to establish a TCP connection and send a test message.</p>
-        <input type="text" id="tcp-message" placeholder="Enter message to send..." style="width: 100%; margin-bottom: 0.5rem; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px;">
-        <br>
-        <button onclick="runTCPTest()">Test TCP</button>
-        <div id="tcp-result"></div>
-    </div>
-
-    <div class="card">
-        <h2>Throughput Simulation</h2>
-        <p>Send logs continuously at a specific rate to test the Hot Path.</p>
-        <div style="display: flex; gap: 1rem; align-items: end;">
-            <div style="flex: 1;">
-                <label style="font-size: 0.8rem;">Logs per second</label><br>
-                <input type="number" id="tp-rate" value="10" style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px;">
-            </div>
-            <div style="flex: 3;">
-                <label style="font-size: 0.8rem;">Log Message</label><br>
-                <input type="text" id="tp-message" placeholder="Log content..." style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px;">
-            </div>
+    <header>
+        <div class="brand">
+            <span>🌋</span> Hearth Live
         </div>
-        <br>
-        <button id="tp-start-btn" onclick="startThroughput()">Start Simulation</button>
-        <button id="tp-stop-btn" onclick="stopThroughput()" style="background: #dc3545;">Stop</button>
-        <div id="tp-result"></div>
-    </div>
+        <div class="controls">
+            <button id="ws-btn" onclick="toggleWS()">
+                <div class="status-pill" id="status-dot"></div>
+                <span id="ws-btn-text">Connect</span>
+            </button>
+            <button onclick="toggleModal()">
+                ⚙️ Tools
+            </button>
+        </div>
+    </header>
 
-    <div class="card">
-        <h2>WebSocket Stream</h2>
-        <p>Listens for real-time logs and heartbeats from the server.</p>
-        <button id="ws-btn" onclick="toggleWS()">Connect WebSocket</button>
-        <div id="ws-status" style="margin-top: 0.5rem; font-size: 0.9rem;">Status: Disconnected</div>
+    <main>
+        <div id="ws-status-bar">
+            <span id="connection-details">Ready to connect...</span>
+            <button onclick="clearLogs()" style="background:none; border:none; padding:0; color:var(--text-secondary); font-size:0.75rem;">Clear Log</button>
+        </div>
         <div id="ws-log">
-            [Waiting for connection...]
+            <!-- Logs will appear here -->
+        </div>
+        <button id="scroll-bottom-btn" onclick="scrollToBottom()">
+            ⬇ New Logs Below
+        </button>
+    </main>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="tools-modal" onclick="if(event.target === this) toggleModal()">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Diagnostics & Simulation</h2>
+                <button onclick="toggleModal()" style="padding: 0.4rem;">✕</button>
+            </div>
+            <div class="modal-body">
+                
+                <div class="section">
+                    <div class="section-title">Throughput Simulation</div>
+                    <div class="row">
+                        <div class="col input-group">
+                            <label>Rate (Logs/sec)</label>
+                            <input type="number" id="tp-rate" value="10">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Payload (JSON)</label>
+                        <input type="text" id="tp-message" placeholder='{"service":"auth", "msg":"login"}'>
+                    </div>
+                    <div class="row">
+                        <button class="primary col" onclick="startThroughput()">▶ Start</button>
+                        <button class="danger col" onclick="stopThroughput()">⏹ Stop</button>
+                    </div>
+                    <div id="tp-result" style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-secondary)"></div>
+                </div>
+
+                <div class="section" style="margin-bottom: 0;">
+                    <div class="section-title">System Health</div>
+                    <button onclick="runTest('/api/test-http', 'health-result')" style="width:100%">Run Health Check</button>
+                    <div id="health-result" style="margin-top:0.5rem; font-size:0.8rem;"></div>
+                </div>
+
+            </div>
         </div>
     </div>
 
     <script>
         let ws = null;
-        const wsBtn = document.getElementById('ws-btn');
-        const wsStatus = document.getElementById('ws-status');
+        let isUserScrolling = false;
+        const wsBtnText = document.getElementById('ws-btn-text');
+        const statusDot = document.getElementById('status-dot');
         const wsLog = document.getElementById('ws-log');
+        const connDetails = document.getElementById('connection-details');
+        const scrollBtn = document.getElementById('scroll-bottom-btn');
 
+        // --- UX Scroll Logic ---
+        wsLog.addEventListener('scroll', () => {
+            const distanceFromBottom = wsLog.scrollHeight - wsLog.scrollTop - wsLog.clientHeight;
+            isUserScrolling = distanceFromBottom > 100;
+            if (!isUserScrolling) scrollBtn.style.display = 'none';
+        });
+
+        function scrollToBottom() {
+            wsLog.scrollTo({ top: wsLog.scrollHeight, behavior: 'smooth' });
+            isUserScrolling = false;
+            scrollBtn.style.display = 'none';
+        }
+
+        // --- UI Toggles ---
+        function toggleModal() {
+            document.getElementById('tools-modal').classList.toggle('open');
+        }
+
+        function clearLogs() {
+            wsLog.innerHTML = '';
+            scrollBtn.style.display = 'none';
+        }
+
+        // --- WebSocket Logic ---
+        function toggleWS() {
+            if (ws) {
+                ws.close();
+                return;
+            }
+            const corePort = "4040";
+            const coreAddr = window.location.hostname + ":" + corePort;
+            try {
+                ws = new WebSocket(`ws://${coreAddr}/ws`);
+                wsBtnText.innerText = 'Disconnect';
+                connDetails.innerText = 'Connecting to ' + coreAddr + '...';
+                ws.onopen = () => {
+                    statusDot.classList.add('connected');
+                    connDetails.innerText = '🟢 Live Stream: ' + coreAddr;
+                    connDetails.style.color = 'var(--success-color)';
+                };
+                ws.onmessage = (event) => renderLog(event.data);
+                ws.onclose = () => {
+                    ws = null;
+                    statusDot.classList.remove('connected');
+                    wsBtnText.innerText = 'Connect';
+                    connDetails.innerText = '🔴 Disconnected';
+                    connDetails.style.color = 'var(--text-secondary)';
+                    const div = document.createElement('div');
+                    div.className = 'heartbeat';
+                    div.innerText = 'Stream Connection Closed';
+                    wsLog.appendChild(div);
+                };
+                ws.onerror = (err) => {
+                    connDetails.innerText = '⚠️ Connection Error';
+                    connDetails.style.color = 'var(--error-color)';
+                };
+            } catch (e) { console.error(e); }
+        }
+
+        // --- Log Rendering ---
+        function renderLog(rawData) {
+            try {
+                const entry = JSON.parse(rawData);
+                if (entry.type === 'heartbeat') {
+                     const div = document.createElement('div');
+                     div.className = 'heartbeat';
+                     div.innerText = `Heartbeat · ${entry.time}`;
+                     wsLog.appendChild(div);
+                } else {
+                    const el = document.createElement('div');
+                    el.className = 'log-entry';
+                    const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], {hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit', fractionalSecondDigits: 3}) : '--:--:--';
+                    
+                    let metaHtml = '';
+                    if (entry.metadata && Object.keys(entry.metadata).length > 0) {
+                        const filtered = Object.fromEntries(
+                            Object.entries(entry.metadata).filter(([k]) => !['service', 'level', 'severity', 'msg', 'message', 'time', 'timestamp'].includes(k.toLowerCase()))
+                        );
+                        if (Object.keys(filtered).length > 0) {
+                            metaHtml = `<div class="log-meta">${JSON.stringify(filtered)}</div>`;
+                        }
+                    }
+
+                    const severity = (entry.severity || 'INFO').toUpperCase();
+
+                    el.innerHTML = `
+                        <span class="log-time">${timeStr}</span>
+                        <span class="level-chip level-chip-${severity}">${severity}</span>
+                        <span class="log-service">${entry.service || 'unknown'}</span>
+                        <div style="flex:1">
+                            <span class="log-msg">${entry.message || entry.raw || ''}</span>
+                            ${metaHtml}
+                        </div>
+                    `;
+                    wsLog.appendChild(el);
+                }
+            } catch (e) {
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+                div.style.color = '#666';
+                div.innerText = rawData;
+                wsLog.appendChild(div);
+            }
+
+            if (wsLog.childElementCount > 500) wsLog.removeChild(wsLog.firstChild);
+            if (!isUserScrolling) { wsLog.scrollTop = wsLog.scrollHeight; } 
+            else { scrollBtn.style.display = 'block'; }
+        }
+
+        // --- API Actions ---
         async function startThroughput() {
             const rate = parseInt(document.getElementById('tp-rate').value);
             const message = document.getElementById('tp-message').value;
             await runTest('/api/start-throughput', 'tp-result', { rate, message });
         }
-
-        async function stopThroughput() {
-            await runTest('/api/stop-throughput', 'tp-result', {});
-        }
-
-        async function runTCPTest() {
-            const message = document.getElementById('tcp-message').value || "Default test message";
-            await runTest('/api/test-tcp', 'tcp-result', { message });
-        }
-
+        async function stopThroughput() { await runTest('/api/stop-throughput', 'tp-result', {}); }
         async function runTest(endpoint, resultId, payload = null) {
             const resultDiv = document.getElementById(resultId);
-            resultDiv.innerHTML = 'Testing...';
-            
+            resultDiv.innerText = '...';
             try {
                 let options = { method: 'GET' };
                 if (payload) {
@@ -97,68 +473,13 @@
                         body: JSON.stringify(payload)
                     };
                 }
-
                 const response = await fetch(endpoint, options);
                 const data = await response.json();
-                
-                let html = `<p class="${data.success ? 'success' : 'error'}"><strong>${data.message}</strong></p>`;
-                if (data.details) {
-                    html += `<pre>${JSON.stringify(data.details, null, 2)}</pre>`;
-                }
-                resultDiv.innerHTML = html;
+                resultDiv.innerText = data.message;
+                resultDiv.style.color = data.success ? 'var(--success-color)' : 'var(--error-color)';
             } catch (err) {
-                resultDiv.innerHTML = `<p class="error">Error executing test: ${err.message}</p>`;
-            }
-        }
-
-        function toggleWS() {
-            if (ws) {
-                ws.close();
-                return;
-            }
-
-            // Assume core is at port 4040 on the same host
-            const corePort = "4040";
-            const coreAddr = window.location.hostname + ":" + corePort;
-            
-            try {
-                ws = new WebSocket(`ws://${coreAddr}/ws`);
-                
-                wsBtn.innerText = 'Disconnect WebSocket';
-                wsStatus.innerText = 'Status: Connecting...';
-                wsStatus.className = '';
-
-                ws.onopen = () => {
-                    wsStatus.innerText = 'Status: Connected';
-                    wsStatus.className = 'success';
-                    wsLog.innerHTML = '<div>[Connected to ' + coreAddr + ']</div>';
-                };
-
-                ws.onmessage = (event) => {
-                    const div = document.createElement('div');
-                    div.textContent = `> ${event.data}`;
-                    wsLog.appendChild(div);
-                    wsLog.scrollTop = wsLog.scrollHeight;
-                };
-
-                ws.onclose = () => {
-                    ws = null;
-                    wsBtn.innerText = 'Connect WebSocket';
-                    wsStatus.innerText = 'Status: Disconnected';
-                    wsStatus.className = '';
-                    const div = document.createElement('div');
-                    div.textContent = '[Connection Closed]';
-                    div.style.color = '#ff4444';
-                    wsLog.appendChild(div);
-                };
-
-                ws.onerror = (err) => {
-                    console.error('WebSocket Error:', err);
-                    wsStatus.innerText = 'Status: Error (Check console)';
-                    wsStatus.className = 'error';
-                };
-            } catch (e) {
-                console.error('WebSocket Init Error:', e);
+                resultDiv.innerText = err.message;
+                resultDiv.style.color = 'var(--error-color)';
             }
         }
     </script>
