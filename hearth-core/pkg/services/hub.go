@@ -85,6 +85,7 @@ func (h *Hub) Run() {
 				case client.Send <- message:
 				default:
 					// If client buffer is full, close and drop to prevent blocking the Hub
+					// Client is too slow, buffer full. Drop them.
 					close(client.Send)
 					delete(h.clients, client)
 				}
@@ -150,7 +151,7 @@ func (c *Client) WritePump(conn *websocket.Conn) {
 
 			// Add queued chat messages to the current websocket message.
 			n := len(c.Send)
-			for i := 0; i < n; i++ {
+			for range n {
 				w.Write([]byte{'\n'})
 				w.Write(<-c.Send)
 			}

@@ -30,7 +30,6 @@ func (h *WSHandler) Handle(c *gin.Context) {
 		logger.Error("WS", "Failed to upgrade to websocket: %v", err)
 		return
 	}
-	defer conn.Close()
 
 	logger.Info("WS", "New WebSocket connection from %s", conn.RemoteAddr().String())
 
