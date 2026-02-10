@@ -3,11 +3,9 @@ package ingestion_pipeline
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/Mahaveer86619/Hearth/pkg/db"
 	"github.com/Mahaveer86619/Hearth/pkg/logger"
-	"github.com/Mahaveer86619/Hearth/pkg/models"
 )
 
 func (s *IngestionPipelineService) Start() {
@@ -43,14 +41,8 @@ func (s *IngestionPipelineService) processLoop() {
 }
 
 func (s *IngestionPipelineService) processLog(raw []byte) {
-	// 1. NORMALIZE (Phase 2 placeholder)
-	// For now, we just wrap it simply
-	entry := models.LogEntry{
-		Timestamp: time.Now(),
-		Service:   "unknown",
-		Raw:       string(raw),
-		Type:      "raw",
-	}
+	// 1. NORMALIZE
+	entry := Normalize(raw)
 
 	// 2. SERIALIZE
 	data, err := json.Marshal(entry)
@@ -59,7 +51,7 @@ func (s *IngestionPipelineService) processLog(raw []byte) {
 		return
 	}
 
-	// 3. BROADCAST (Hot Path)
+	// 3. BROADCAST
 	// Fire and forget to Redis
 	if db.RDB != nil {
 		db.PublishLog(context.Background(), data)

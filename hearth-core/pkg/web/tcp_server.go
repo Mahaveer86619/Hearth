@@ -37,7 +37,7 @@ func (s *TCPServer) Start() error {
 	s.listener = listener
 	// defer s.listener.Close() // Close is handled in Stop
 
-	logger.Info("TCP", "Ingestion Server listening on %s", s.addr)
+	// logger.Info("TCP", "Ingestion Server listening on %s", s.addr)
 
 	for {
 		conn, err := listener.Accept()
