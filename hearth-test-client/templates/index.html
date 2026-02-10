@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hearth Test Client</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+        .card { border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
+        button { padding: 0.5rem 1rem; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #0056b3; }
+        .success { color: green; }
+        .error { color: red; }
+        pre { background: #f4f4f4; padding: 0.5rem; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Hearth Test Client</h1>
+
+    <div class="card">
+        <h2>HTTP Health Check</h2>
+        <p>Tests the /health endpoint of the Hearth Core service.</p>
+        <button onclick="runTest('/api/test-http', 'http-result')">Test HTTP</button>
+        <div id="http-result"></div>
+    </div>
+
+    <div class="card">
+        <h2>TCP Connection Test</h2>
+        <p>Attempts to establish a TCP connection and send a test message.</p>
+        <button onclick="runTest('/api/test-tcp', 'tcp-result')">Test TCP</button>
+        <div id="tcp-result"></div>
+    </div>
+
+    <script>
+        async function runTest(endpoint, resultId) {
+            const resultDiv = document.getElementById(resultId);
+            resultDiv.innerHTML = 'Testing...';
+            
+            try {
+                const response = await fetch(endpoint);
+                const data = await response.json();
+                
+                let html = `<p class="${data.success ? 'success' : 'error'}"><strong>${data.message}</strong></p>`;
+                if (data.details) {
+                    html += `<pre>${JSON.stringify(data.details, null, 2)}</pre>`;
+                }
+                resultDiv.innerHTML = html;
+            } catch (err) {
+                resultDiv.innerHTML = `<p class="error">Error executing test: ${err.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
