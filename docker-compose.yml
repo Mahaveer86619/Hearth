@@ -44,8 +44,13 @@ services:
     ports:
       - "4050:4050"
       - "4040:4040"
-    env_file:
-      - ./hearth-core/.env
+    environment:
+      HTTP_PORT: 4040
+      TCP_PORT: 4050
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin123"
+      REDIS_URL: "redis://redis:6379"
     depends_on:
       minio:
         condition: service_healthy
@@ -56,21 +61,22 @@ services:
     networks:
       - hearth-network
 
-  # hearth-test-client:
-  #   container_name: hearth_test_client
-  #   build:
-  #     context: ./hearth-test-client/
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     TARGET_HOST: hearth_core
-  #     TARGET_HTTP_PORT: 4040
-  #     TARGET_TCP_PORT: 4050
-  #   depends_on:
-  #     - hearth-core
-  #   networks:
-  #     - hearth-network
+  hearth-test-client:
+    container_name: hearth_test_client
+    build:
+      context: ./hearth-test-client/
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      TARGET_HOST: hearth_core
+      TARGET_HTTP_PORT: 4040
+      TARGET_TCP_PORT: 4050
+      PORT: 3000
+    depends_on:
+      - hearth-core
+    networks:
+      - hearth-network
 
 volumes:
   minio_data:
